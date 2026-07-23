@@ -121,11 +121,12 @@ it('includes nested subdirectories when --include-subdirs is passed, preserving 
     expect($mkcolFolders)->toContain('https://cloud.test/remote.php/dav/files/testuser/Backups/Project/Sub');
 });
 
-it('creates a share link and prints it with --share', function () {
+it('creates a share link for the target folder and prints it with --share-dir', function () {
     $file = $this->tmpDir.'/f.txt';
     file_put_contents($file, 'x');
     $checksum = hash_file('sha1', $file);
 
+    $history = [];
     $client = fakeNextcloudClient([
         new Response(201),                   // MKCOL Shared
         noRemoteChecksum(),                  // pre-check
@@ -133,11 +134,67 @@ it('creates a share link and prints it with --share', function () {
         checksumPropfindResponse($checksum), // post-verify
         new Response(200, [], json_encode(['ocs' => ['data' => []]])), // share lookup
         new Response(200, [], json_encode(['ocs' => ['data' => ['url' => 'https://cloud.test/s/abc123']]])), // share create
-    ]);
+    ], $history);
 
     $tester = new CommandTester(new UploadCommand($client));
-    $tester->execute(['folder' => 'Shared', '--file' => [$file], '--share' => true]);
+    $tester->execute(['folder' => 'Shared', '--file' => [$file], '--share-dir' => true]);
 
     expect($tester->getStatusCode())->toBe(0)
         ->and($tester->getDisplay())->toContain('Share link: https://cloud.test/s/abc123');
+
+    $shareLookup = $history[4]['request'];
+    expect($shareLookup->getUri()->getQuery())->toContain('path=%2FShared');
+});
+
+it('creates a share link for the uploaded file and prints it with --share-file', function () {
+    $file = $this->tmpDir.'/f.txt';
+    file_put_contents($file, 'x');
+    $checksum = hash_file('sha1', $file);
+
+    $history = [];
+    $client = fakeNextcloudClient([
+        new Response(201),                   // MKCOL Shared
+        noRemoteChecksum(),                  // pre-check
+        new Response(201),                   // PUT
+        checksumPropfindResponse($checksum), // post-verify
+        new Response(200, [], json_encode(['ocs' => ['data' => []]])), // share lookup
+        new Response(200, [], json_encode(['ocs' => ['data' => ['url' => 'https://cloud.test/s/def456']]])), // share create
+    ], $history);
+
+    $tester = new CommandTester(new UploadCommand($client));
+    $tester->execute(['folder' => 'Shared', '--file' => [$file], '--share-file' => true]);
+
+    expect($tester->getStatusCode())->toBe(0)
+        ->and($tester->getDisplay())->toContain('Share link: https://cloud.test/s/def456');
+
+    $shareLookup = $history[4]['request'];
+    expect($shareLookup->getUri()->getQuery())->toContain('path=%2FShared%2Ff.txt');
+});
+
+it('fails when --share-file is passed with more than one uploaded file', function () {
+    $fileA = $this->tmpDir.'/a.txt';
+    $fileB = $this->tmpDir.'/b.txt';
+    file_put_contents($fileA, 'a');
+    file_put_contents($fileB, 'b');
+
+    $client = fakeNextcloudClient(array_fill(0, 20, new Response(201)));
+
+    $tester = new CommandTester(new UploadCommand($client));
+    $tester->execute(['folder' => 'Shared', '--file' => [$fileA, $fileB], '--share-file' => true]);
+
+    expect($tester->getStatusCode())->toBe(1)
+        ->and($tester->getDisplay())->toContain('--share-file requires exactly one file');
+});
+
+it('fails when both --share-dir and --share-file are passed', function () {
+    $file = $this->tmpDir.'/f.txt';
+    file_put_contents($file, 'x');
+
+    $client = fakeNextcloudClient([]);
+
+    $tester = new CommandTester(new UploadCommand($client));
+    $tester->execute(['folder' => 'Shared', '--file' => [$file], '--share-dir' => true, '--share-file' => true]);
+
+    expect($tester->getStatusCode())->toBe(1)
+        ->and($tester->getDisplay())->toContain('Pass either --share-dir or --share-file, not both');
 });

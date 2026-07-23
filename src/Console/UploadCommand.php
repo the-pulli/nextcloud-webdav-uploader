@@ -47,7 +47,8 @@ final class UploadCommand extends Command
             ->addOption('include-subdirs', null, InputOption::VALUE_NONE, "When a --file path is a directory, also include its subdirectories recursively (default: only that directory's direct files)")
             ->addOption('chunk-size', null, InputOption::VALUE_REQUIRED, 'Override the chunk size in MB used for files above the chunking threshold')
             ->addOption('force-chunk-above', null, InputOption::VALUE_REQUIRED, 'Override the chunking threshold in MB, bypassing the ~4 GiB default (useful to test chunked uploads with a small file)')
-            ->addOption('share', null, InputOption::VALUE_NONE, 'Create (or reuse) a public link share for the target folder and print it');
+            ->addOption('share-dir', null, InputOption::VALUE_NONE, 'Create (or reuse) a public link share for the target folder and print it')
+            ->addOption('share-file', null, InputOption::VALUE_NONE, 'Create (or reuse) a public link share for the uploaded file and print it (only valid when exactly one file is uploaded)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -93,6 +94,12 @@ final class UploadCommand extends Command
             return Command::FAILURE;
         }
 
+        if ($input->getOption('share-dir') && $input->getOption('share-file')) {
+            $io->error('Pass either --share-dir or --share-file, not both.');
+
+            return Command::FAILURE;
+        }
+
         if ($input->getOption('chunk-size') !== null) {
             $client->setChunkSize(((int) $input->getOption('chunk-size')) * 1024 * 1024);
         }
@@ -113,19 +120,49 @@ final class UploadCommand extends Command
             return Command::FAILURE;
         }
 
+        $uploadedPaths = [];
         $failed = false;
 
         foreach ($jobs as $job) {
-            $failed = ! $this->uploadOne($io, $client, $job['folder'], $job['local']) || $failed;
+            $remotePath = $this->uploadOne($io, $client, $job['folder'], $job['local']);
+
+            if ($remotePath === null) {
+                $failed = true;
+
+                continue;
+            }
+
+            $uploadedPaths[] = $remotePath;
         }
 
         if ($failed) {
             return Command::FAILURE;
         }
 
-        if ($input->getOption('share')) {
+        if ($input->getOption('share-dir')) {
             try {
                 $link = $client->shareLink($folder);
+            } catch (NextcloudException $e) {
+                $io->error($e->getMessage());
+
+                return Command::FAILURE;
+            }
+
+            $io->success(sprintf('Share link: %s', $link));
+        }
+
+        if ($input->getOption('share-file')) {
+            if (count($uploadedPaths) !== 1) {
+                $io->error(sprintf(
+                    '--share-file requires exactly one file to be uploaded (got %d); use --share-dir to share the whole folder instead.',
+                    count($uploadedPaths)
+                ));
+
+                return Command::FAILURE;
+            }
+
+            try {
+                $link = $client->shareLink($uploadedPaths[0]);
             } catch (NextcloudException $e) {
                 $io->error($e->getMessage());
 
@@ -177,7 +214,7 @@ final class UploadCommand extends Command
         return $jobs;
     }
 
-    private function uploadOne(SymfonyStyle $io, NextcloudClient $client, string $folder, string $file): bool
+    private function uploadOne(SymfonyStyle $io, NextcloudClient $client, string $folder, string $file): ?string
     {
         $size = (int) filesize($file);
         $chunked = $size > $client->chunkThreshold();
@@ -201,7 +238,7 @@ final class UploadCommand extends Command
 
             $io->error(sprintf('%s: %s', basename($file), $e->getMessage()));
 
-            return false;
+            return null;
         }
 
         if ($progress !== null) {
@@ -212,7 +249,7 @@ final class UploadCommand extends Command
         if ($result['skipped']) {
             $io->writeln(sprintf('%s (%s) — unchanged, skipped', basename($file), self::formatBytes($size)));
 
-            return true;
+            return $result['path'];
         }
 
         $io->writeln(sprintf(
@@ -223,7 +260,7 @@ final class UploadCommand extends Command
         ));
         $io->writeln(sprintf('  → /%s (verified)', $result['path']));
 
-        return true;
+        return $result['path'];
     }
 
     private static function formatBytes(int $bytes): string

@@ -60,7 +60,10 @@ See [`.env.example`](.env.example).
 ./nextcloud-webdav-uploader Backups --file=/path/a --file=/path/b.txt
 
 # Create (or reuse) a public share link for the target folder afterwards
-./nextcloud-webdav-uploader Shared --file=/path/to/file.pdf --share
+./nextcloud-webdav-uploader Shared --file=/path/to/file.pdf --share-dir
+
+# ...or for the uploaded file itself (only valid with exactly one file)
+./nextcloud-webdav-uploader Shared --file=/path/to/file.pdf --share-file
 ```
 
 Rerunning the same command only re-uploads files whose content actually changed — everything else is reported as `unchanged, skipped`.
@@ -74,7 +77,8 @@ Rerunning the same command only re-uploads files whose content actually changed 
 | `--include-subdirs`    | Recurse into subdirectories of a `--file` directory, preserving structure                     |
 | `--chunk-size`         | Override the chunk size in MB for files above the chunking threshold                          |
 | `--force-chunk-above`  | Override the chunking threshold in MB (useful to exercise chunking without a huge test file)  |
-| `--share`              | Create (or reuse) a public link share for the target folder and print it                      |
+| `--share-dir`          | Create (or reuse) a public link share for the target folder and print it                      |
+| `--share-file`         | Create (or reuse) a public link share for the uploaded file and print it (exactly one file only) |
 
 ## Testing
 
