@@ -1,0 +1,17 @@
+#!/usr/bin/env php
+<?php
+
+use Dotenv\Dotenv;
+use Pulli\NextcloudWebdavUploader\Console\UploadCommand;
+use Symfony\Component\Console\Application;
+
+require_once __DIR__.'/vendor/autoload.php';
+
+Dotenv::createImmutable(__DIR__)->safeLoad();
+
+$command = new UploadCommand;
+
+$application = new Application('Nextcloud WebDAV Uploader');
+$application->add($command);
+$application->setDefaultCommand($command->getName(), true);
+$application->run();
